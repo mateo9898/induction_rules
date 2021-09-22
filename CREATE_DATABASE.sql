@@ -1,0 +1,1 @@
+CREATE OR REPLACE DIRECTORY FILE_DIR AS 'C:\Program Files\oracle\files_to_read';

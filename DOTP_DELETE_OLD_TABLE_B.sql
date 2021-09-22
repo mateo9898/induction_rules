@@ -28,6 +28,12 @@ create or replace NONEDITIONABLE PACKAGE BODY DOTP_DELETE_OLD_TABLE IS
                 EXCEPTION WHEN e_table_no_exist THEN
                     NULL;
             END;
+            v_sql := 'DROP TABLE ' || NP_NAME_ELEMEMT.NAME_TABLE_RULES(NP_NAME_ELEMEMT.NAME_TABLE_EAV(p_text => v_file_name));
+            BEGIN 
+                EXECUTE IMMEDIATE v_sql;
+                EXCEPTION WHEN e_table_no_exist THEN
+                    NULL;
+            END;
             DELETE_OLD_SEQUENCE(p_name_sequence => v_file_name);
         END LOOP;
         EXCEPTION WHEN OTHERS THEN

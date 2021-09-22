@@ -2,6 +2,25 @@ create or replace NONEDITIONABLE PACKAGE BODY RIP_RULE_INDUCTION IS
 
     /* ****************************** */
     /* AUTHOR: MATEUSZ WRZOL */
+    /* PROCEDURE: RIP_RULE_INDUCTION.INDUCTION_CONTROLER */
+    /* DATE: 22.09.2021 */
+    /* ****************************** */
+    PROCEDURE INDUCTION_CONTROLER IS
+    BEGIN
+        CREATE_MULTIPLIER_BETA;
+        DOTP_DELETE_OLD_TABLE.DELETE_TABLE(p_name_table => SPP_SYSTEM_PARAMS.R_T_TABLE_NAME);
+        CTP_CREATE_TABLE.CREATE_TABLE_R_T(p_name_table => SPP_SYSTEM_PARAMS.R_T_TABLE_NAME);
+        CREATE_AND_GENERATE_R_T;
+        INDUCTION_RULES;
+        EXCEPTION 
+            WHEN OTHERS THEN
+                DBMS_OUTPUT.PUT_LINE('ERROR IN PROCESS: RIP_RULE_INDUCTION.INDUCTION_CONTROLER');
+                DBMS_OUTPUT.PUT_LINE(SQLERRM);
+                DBMS_OUTPUT.PUT_LINE(SQLCODE);
+    END INDUCTION_CONTROLER;
+    
+    /* ****************************** */
+    /* AUTHOR: MATEUSZ WRZOL */
     /* PROCEDURE: RIP_RULE_INDUCTION.CREATE_MULTIPLIER_BETA */
     /* DATE: 17.08.2021 */
     /* ****************************** */
@@ -11,10 +30,6 @@ create or replace NONEDITIONABLE PACKAGE BODY RIP_RULE_INDUCTION IS
         CTP_CREATE_TABLE.CREATE_TABLE_MULTIPLIER_BETA(p_name_table => SPP_SYSTEM_PARAMS.MULTIPLIER_BETA_TABLE_NAME);
         CTP_CREATE_TABLE.DROP_SEQUENCE_AND_CREATE_NEW(p_sequence => 'MS_' || SPP_SYSTEM_PARAMS.MULTIPLIER_BETA_TABLE_NAME);
         CTP_CREATE_TABLE.INSERT_MULTIPLIER_BETA(p_name_table => SPP_SYSTEM_PARAMS.MULTIPLIER_BETA_TABLE_NAME);
-        DOTP_DELETE_OLD_TABLE.DELETE_TABLE(p_name_table => SPP_SYSTEM_PARAMS.R_T_TABLE_NAME);
-        CTP_CREATE_TABLE.CREATE_TABLE_R_T(p_name_table => SPP_SYSTEM_PARAMS.R_T_TABLE_NAME);
-        CREATE_AND_GENERATE_R_T;
-        INDUCTION_RULES;
         EXCEPTION 
             WHEN OTHERS THEN
                 DBMS_OUTPUT.PUT_LINE('ERROR IN PROCESS: RIP_RULE_INDUCTION.CREATE_MULTIPLIER_BETA');
@@ -128,97 +143,103 @@ create or replace NONEDITIONABLE PACKAGE BODY RIP_RULE_INDUCTION IS
             CTP_CREATE_TABLE.CREATE_TABLE_R_T_COUNTED(p_name_table => SPP_SYSTEM_PARAMS.R_T_COUNTED);
             v_number_of_object := COUNT_OBJECT_EAV(p_table_name => v_table_name);
             v_attribute_count := COUNT_ATTRIBUTE(p_table_name => v_table_name);
-            CTP_CREATE_TABLE.DROP_CREATE_TABLE_INDUCTED_RULES(p_name_table => v_table_name);
+            CTP_CREATE_TABLE.CREATE_TABLE_INDUCTED_RULES(p_name_table => v_table_name);
             /* ALL MULTIPLIER FOR BETA */
             OPEN c_multiplier_beta FOR v_sql_multiplier_beta;
             LOOP
                 FETCH c_multiplier_beta INTO v_multiplier;
                 EXIT WHEN c_multiplier_beta%NOTFOUND;
                 /* ALL OBJECT BY EAV*/
-                OPEN c_object_nr FOR v_sql_object_nr || v_table_name || ' T ORDER BY T.OBJECT ASC';
-                LOOP
-                    FETCH c_object_nr INTO v_object_nr;
-                    EXIT WHEN c_object_nr%NOTFOUND;
-                    v_index := -1;
-                    t_r_R_from_T := empty_t_r_R_from_T;
-                    v_sql := 'SELECT T.VALUE FROM ' || v_table_name || ' T WHERE T.ATTRIBUTE = ''' ||
-                    v_dec_attrib || ''' AND T.OBJECT = ' || v_object_nr;
-                    EXECUTE IMMEDIATE v_sql INTO v_dec_value;
-                    /* ALL RECORD FROM OBJECT EAV */
-                    OPEN c_row_from_eav FOR v_sql_row_from_eav || v_table_name || ' T WHERE T.ATTRIBUTE <> ''' ||
-                    v_dec_attrib || ''' AND T.OBJECT = ' || v_object_nr;
-                    LOOP
-                        FETCH c_row_from_eav INTO v_attribute_row_eav, v_value_row_eav;
-                        EXIT WHEN c_row_from_eav%NOTFOUND;
-                        v_index := v_index + 1;
-                        BEGIN 
-                            v_sql := 'SELECT T.R_T, T.VALUES_, T.COUNTED, T.VALUE_DECISION FROM ' || SPP_SYSTEM_PARAMS.R_T_COUNTED || ' T WHERE T.R_T = ''' ||
-                            v_attribute_row_eav || ''' AND T.VALUES_ = ''' || v_value_row_eav || ''' AND T.VALUE_DECISION = ''' || v_dec_value || '''';
-                            EXECUTE IMMEDIATE v_sql INTO t_r_R_from_T(v_index).v_r_from_t, t_r_R_from_T(v_index).v_value, t_r_R_from_T(v_index).v_result, 
-                            t_r_R_from_T(v_index).v_decision;
-                            EXCEPTION WHEN NO_DATA_FOUND THEN
-                                v_dummy := COUNT_ALL_R_T(v_table_name, v_attribute_row_eav, v_value_row_eav, v_dec_attrib, v_number_of_object, v_dec_value);
-                                v_sql := 'INSERT INTO ' || SPP_SYSTEM_PARAMS.R_T_COUNTED || ' VALUES (''' ||
-                                v_attribute_row_eav || ''', ''' || v_value_row_eav || ''', ' ||
-                                v_dummy || ', ''' || v_dec_value || ''')';
-                                --DBMS_OUTPUT.PUT_LINE(v_sql);
-                                EXECUTE IMMEDIATE v_sql;
-                                t_r_R_from_T(v_index).v_r_from_t := v_attribute_row_eav;
-                                t_r_R_from_T(v_index).v_value := v_value_row_eav;
-                                t_r_R_from_T(v_index).v_result := v_dummy;
-                                t_r_R_from_T(v_index).v_decision := v_dec_value;
-                        END;
-                        --EXECUTE IMMEDIATE v_sql_count_R_T || v_table_name || ' WHERE OBJECT = ';
-                        /*DBMS_OUTPUT.PUT_LINE(t_r_R_from_T(v_index).v_r_from_t || ' : ' || t_r_R_from_T(v_index).v_value || ' : ' || t_r_R_from_T(v_index).v_result || ' : ' ||
-                        t_r_R_from_T(v_index).v_decision);*/
-                        --DBMS_OUTPUT.PUT_LINE(COUNT_ALL_R_T(v_table_name, v_attribute_row_eav, v_value_row_eav, v_dec_attrib, v_number_of_object, v_dec_value));
-                    END LOOP;
-                    /* -1- OZNACZA JAK DOTAD BRAK SPELNIENTA WARUNKU <B(T)
-                     * -2- OZNACZA BRAK MOZLIWOSCI SPELNIENIA WARUNKU B(T) 
-                     * (ZA WYSOKI JEGO PROG ABY COKOLWIEK WYGENEROWAC) */
-                    v_dummy_v := GENERATE_RULE_ROW (p_table_R_T => t_r_R_from_T, p_B_T => ROUND(v_R_T*v_multiplier));
-                    --DBMS_OUTPUT.PUT_LINE(v_dummy_v);
-                    WHILE v_dummy_v IN ('-1', '-2')
-                    LOOP
-                        v_R_T_value := MINIMAL_R_T_VALUE(p_table_R_T => t_r_R_from_T);
-                        FOR i IN 0..v_attribute_count
+                v_sql := 'SELECT DISTINCT 1 FROM ' || NP_NAME_ELEMEMT.NAME_TABLE_RULES(v_table_name) 
+                || ' WHERE BETA = ' || ROUND(v_R_T*v_multiplier);
+                BEGIN
+                    EXECUTE IMMEDIATE v_sql INTO v_dummy;
+                    EXCEPTION WHEN NO_DATA_FOUND THEN
+                        OPEN c_object_nr FOR v_sql_object_nr || v_table_name || ' T ORDER BY T.OBJECT ASC';
                         LOOP
-                            IF t_r_R_from_T(i).v_r_from_t NOT LIKE '%' || v_R_T_value.v_r_from_t || '%' THEN
-                                --DBMS_OUTPUT.PUT_LINE(v_R_T_value.v_r_from_t || ' : ' || t_r_R_from_T(i).v_r_from_t);
-                               v_index := v_index + 1;
-                               BEGIN 
+                            FETCH c_object_nr INTO v_object_nr;
+                            EXIT WHEN c_object_nr%NOTFOUND;
+                            v_index := -1;
+                            t_r_R_from_T := empty_t_r_R_from_T;
+                            v_sql := 'SELECT T.VALUE FROM ' || v_table_name || ' T WHERE T.ATTRIBUTE = ''' ||
+                            v_dec_attrib || ''' AND T.OBJECT = ' || v_object_nr;
+                            EXECUTE IMMEDIATE v_sql INTO v_dec_value;
+                            /* ALL RECORD FROM OBJECT EAV */
+                            OPEN c_row_from_eav FOR v_sql_row_from_eav || v_table_name || ' T WHERE T.ATTRIBUTE <> ''' ||
+                            v_dec_attrib || ''' AND T.OBJECT = ' || v_object_nr;
+                            LOOP
+                                FETCH c_row_from_eav INTO v_attribute_row_eav, v_value_row_eav;
+                                EXIT WHEN c_row_from_eav%NOTFOUND;
+                                v_index := v_index + 1;
+                                BEGIN 
                                     v_sql := 'SELECT T.R_T, T.VALUES_, T.COUNTED, T.VALUE_DECISION FROM ' || SPP_SYSTEM_PARAMS.R_T_COUNTED || ' T WHERE T.R_T = ''' ||
-                                    v_R_T_value.v_r_from_t || ',' || t_r_R_from_T(i).v_r_from_t || ''' AND T.VALUES_ = ''' ||
-                                    v_R_T_value.v_value || ',' || t_r_R_from_T(i).v_value || ''' AND T.VALUE_DECISION = ''' || v_dec_value || '''';
-                                    EXECUTE IMMEDIATE v_sql INTO t_r_R_from_T(v_index).v_r_from_t, t_r_R_from_T(v_index).v_value, t_r_R_from_T(v_index).v_result,
+                                    v_attribute_row_eav || ''' AND T.VALUES_ = ''' || v_value_row_eav || ''' AND T.VALUE_DECISION = ''' || v_dec_value || '''';
+                                    EXECUTE IMMEDIATE v_sql INTO t_r_R_from_T(v_index).v_r_from_t, t_r_R_from_T(v_index).v_value, t_r_R_from_T(v_index).v_result, 
                                     t_r_R_from_T(v_index).v_decision;
                                     EXCEPTION WHEN NO_DATA_FOUND THEN
-                                        v_dummy := COUNT_ALL_R_T(v_table_name, v_R_T_value.v_r_from_t || ',' || t_r_R_from_T(i).v_r_from_t,
-                                        v_R_T_value.v_value || ',' || t_r_R_from_T(i).v_value, v_dec_attrib, v_number_of_object, v_dec_value);
+                                        v_dummy := COUNT_ALL_R_T(v_table_name, v_attribute_row_eav, v_value_row_eav, v_dec_attrib, v_number_of_object, v_dec_value);
                                         v_sql := 'INSERT INTO ' || SPP_SYSTEM_PARAMS.R_T_COUNTED || ' VALUES (''' ||
-                                        v_R_T_value.v_r_from_t || ',' || t_r_R_from_T(i).v_r_from_t || ''', ''' ||
-                                        v_R_T_value.v_value || ',' || t_r_R_from_T(i).v_value || ''', ' ||
+                                        v_attribute_row_eav || ''', ''' || v_value_row_eav || ''', ' ||
                                         v_dummy || ', ''' || v_dec_value || ''')';
+                                        --DBMS_OUTPUT.PUT_LINE(v_sql);
                                         EXECUTE IMMEDIATE v_sql;
-                                        t_r_R_from_T(v_index).v_r_from_t := v_R_T_value.v_r_from_t || ',' || t_r_R_from_T(i).v_r_from_t;
-                                        t_r_R_from_T(v_index).v_value := v_R_T_value.v_value || ',' || t_r_R_from_T(i).v_value;
+                                        t_r_R_from_T(v_index).v_r_from_t := v_attribute_row_eav;
+                                        t_r_R_from_T(v_index).v_value := v_value_row_eav;
                                         t_r_R_from_T(v_index).v_result := v_dummy;
                                         t_r_R_from_T(v_index).v_decision := v_dec_value;
-                               END;
-                            END IF;
+                                END;
+                                --EXECUTE IMMEDIATE v_sql_count_R_T || v_table_name || ' WHERE OBJECT = ';
+                                /*DBMS_OUTPUT.PUT_LINE(t_r_R_from_T(v_index).v_r_from_t || ' : ' || t_r_R_from_T(v_index).v_value || ' : ' || t_r_R_from_T(v_index).v_result || ' : ' ||
+                                t_r_R_from_T(v_index).v_decision);*/
+                                --DBMS_OUTPUT.PUT_LINE(COUNT_ALL_R_T(v_table_name, v_attribute_row_eav, v_value_row_eav, v_dec_attrib, v_number_of_object, v_dec_value));
+                            END LOOP;
+                            /* -1- OZNACZA JAK DOTAD BRAK SPELNIENTA WARUNKU <B(T)
+                             * -2- OZNACZA BRAK MOZLIWOSCI SPELNIENIA WARUNKU B(T) 
+                             * (ZA WYSOKI JEGO PROG ABY COKOLWIEK WYGENEROWAC) */
+                            v_dummy_v := GENERATE_RULE_ROW (p_table_R_T => t_r_R_from_T, p_B_T => ROUND(v_R_T*v_multiplier));
+                            --DBMS_OUTPUT.PUT_LINE(v_dummy_v);
+                            WHILE v_dummy_v IN ('-1', '-2')
+                            LOOP
+                                v_R_T_value := MINIMAL_R_T_VALUE(p_table_R_T => t_r_R_from_T);
+                                FOR i IN 0..v_attribute_count
+                                LOOP
+                                    IF t_r_R_from_T(i).v_r_from_t NOT LIKE '%' || v_R_T_value.v_r_from_t || '%' THEN
+                                        --DBMS_OUTPUT.PUT_LINE(v_R_T_value.v_r_from_t || ' : ' || t_r_R_from_T(i).v_r_from_t);
+                                       v_index := v_index + 1;
+                                       BEGIN 
+                                            v_sql := 'SELECT T.R_T, T.VALUES_, T.COUNTED, T.VALUE_DECISION FROM ' || SPP_SYSTEM_PARAMS.R_T_COUNTED || ' T WHERE T.R_T = ''' ||
+                                            v_R_T_value.v_r_from_t || ',' || t_r_R_from_T(i).v_r_from_t || ''' AND T.VALUES_ = ''' ||
+                                            v_R_T_value.v_value || ',' || t_r_R_from_T(i).v_value || ''' AND T.VALUE_DECISION = ''' || v_dec_value || '''';
+                                            EXECUTE IMMEDIATE v_sql INTO t_r_R_from_T(v_index).v_r_from_t, t_r_R_from_T(v_index).v_value, t_r_R_from_T(v_index).v_result,
+                                            t_r_R_from_T(v_index).v_decision;
+                                            EXCEPTION WHEN NO_DATA_FOUND THEN
+                                                v_dummy := COUNT_ALL_R_T(v_table_name, v_R_T_value.v_r_from_t || ',' || t_r_R_from_T(i).v_r_from_t,
+                                                v_R_T_value.v_value || ',' || t_r_R_from_T(i).v_value, v_dec_attrib, v_number_of_object, v_dec_value);
+                                                v_sql := 'INSERT INTO ' || SPP_SYSTEM_PARAMS.R_T_COUNTED || ' VALUES (''' ||
+                                                v_R_T_value.v_r_from_t || ',' || t_r_R_from_T(i).v_r_from_t || ''', ''' ||
+                                                v_R_T_value.v_value || ',' || t_r_R_from_T(i).v_value || ''', ' ||
+                                                v_dummy || ', ''' || v_dec_value || ''')';
+                                                EXECUTE IMMEDIATE v_sql;
+                                                t_r_R_from_T(v_index).v_r_from_t := v_R_T_value.v_r_from_t || ',' || t_r_R_from_T(i).v_r_from_t;
+                                                t_r_R_from_T(v_index).v_value := v_R_T_value.v_value || ',' || t_r_R_from_T(i).v_value;
+                                                t_r_R_from_T(v_index).v_result := v_dummy;
+                                                t_r_R_from_T(v_index).v_decision := v_dec_value;
+                                       END;
+                                    END IF;
+                                END LOOP;
+                                v_dummy_v := GENERATE_RULE_ROW (p_table_R_T => t_r_R_from_T, p_B_T => ROUND(v_R_T*v_multiplier));
+                                --DBMS_OUTPUT.PUT_LINE(v_dummy_v);
+                                IF v_dummy_v = '-1' AND REGEXP_COUNT(t_r_R_from_T(t_r_R_from_T.LAST).v_r_from_t, ',') = (v_attribute_count - 1) THEN
+                                    v_dummy_v := '-2';
+                                END IF;
+                            END LOOP;
+                            CTP_CREATE_TABLE.INSERT_DATA_RULE(p_name_table => v_table_name,
+                                                              p_data => v_object_nr || ', ' || ROUND(v_R_T*v_multiplier) || ', ''' || REPLACE(v_dummy_v, '''', '''''') || '''');
+                            DBMS_OUTPUT.PUT_LINE(v_object_nr || ': MULTIPLIER (' || v_multiplier || ') RULE ::' || v_dummy_v);
+                            --DBMS_OUTPUT.PUT_LINE(v_dummy_v);
+                            --DBMS_OUTPUT.PUT_LINE(v_object_nr);
                         END LOOP;
-                        v_dummy_v := GENERATE_RULE_ROW (p_table_R_T => t_r_R_from_T, p_B_T => ROUND(v_R_T*v_multiplier));
-                        --DBMS_OUTPUT.PUT_LINE(v_dummy_v);
-                        IF v_dummy_v = '-1' AND REGEXP_COUNT(t_r_R_from_T(t_r_R_from_T.LAST).v_r_from_t, ',') = (v_attribute_count - 1) THEN
-                            v_dummy_v := '-2';
-                        END IF;
-                    END LOOP;
-                    CTP_CREATE_TABLE.INSERT_DATA_RULE(p_name_table => v_table_name,
-                                                      p_data => v_object_nr || ', ' || ROUND(v_R_T*v_multiplier) || ', ''' || REPLACE(v_dummy_v, '''', '''''') || '''');
-                    DBMS_OUTPUT.PUT_LINE(v_object_nr || ': MULTIPLIER (' || v_multiplier || ') RULE ::' || v_dummy_v);
-                    --DBMS_OUTPUT.PUT_LINE(v_dummy_v);
-                    --DBMS_OUTPUT.PUT_LINE(v_object_nr);
-                END LOOP;
+                END;
                 --DBMS_OUTPUT.PUT_LINE(v_R_T*v_multiplier);
             END LOOP;
         END LOOP;
