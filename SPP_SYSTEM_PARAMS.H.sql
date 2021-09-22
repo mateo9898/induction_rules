@@ -43,3 +43,5 @@ create or replace NONEDITIONABLE PACKAGE SPP_SYSTEM_PARAMS IS
         v_r_from_t VARCHAR2(1000),
         v_value VARCHAR2(1000));
 END SPP_SYSTEM_PARAMS;
+
+sth;
